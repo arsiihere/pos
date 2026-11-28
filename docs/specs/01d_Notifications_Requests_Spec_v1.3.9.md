@@ -5,7 +5,7 @@
 v1.3.8 plus the QA round 2 rulings. Marker "⚠️ Changed by 01d v1.3.9 (owner 2026-11-28 QA-R2, BUG-n)".
 
 - **(BUG-4, BUG-14; 03b v1.0.20) `excludesStaff`.** A kind may define `excludesStaff?(values, staff_id, directory): boolean` (pure, memory, from the alert's stored values and the hub directory; called through `staffAllowed`, a throw counts as allowed), beside v1.3.7's `excludesDevice`. An excluded person gets **no recipient row** at resolve on any step or route (raised target, `managers`, `point`, every other target, fallback levels); a device row's signed-in staff socket of an excluded person gets **no frame** (neither card nor lock); the `alerts` catch-up and `alerts-inbox` of an excluded person list no row of the alert. Alert-mode (signed-out) sockets and station sockets are unaffected. 03b v1.0.20 uses it so a pickup order's per-point Ready reaches nobody and its counter alert reaches only order-taking staff and managers. No event, statement or wire change. §3.4, §3.5, §4.2, tests 124–125.
-- **(BUG-13) Ghost taps on the PIN pad.** §8.1: the D02 PIN pad (`PinKeys`: the answer sheet, the sign-in screen) ignores **pointer taps for 400 ms after it opens** (the second tap of a double-tap on Approve would land on a key, e.g. "9"); keyboard digits are never ignored. Test 126.
+- **(BUG-13) Ghost taps on the PIN pad.** §8.1: the answer sheet's D02 PIN pad (`PinStep`, opened by Approve / Reject) ignores **pointer taps for 400 ms after it opens** (the second tap of a double-tap on Approve would land on a key, e.g. "9"); keyboard digits are never ignored. The sign-in screen's pad is unchanged (it opens from a person tile, not under the Approve button). Test 126.
 - **(UX) Sign-in screen.** §8.1 F01: a signed-out staff app (the sign-in screen: kiosk, phone, tablet) shows **no alerts** — no lock panel, no lock lines; alert-mode frames still arrive and the device's sound rules (§8.3) are unchanged. ~~F01 (frames LockKiosk, LockPhone): up to 3 lock lines on the sign-in screen.~~ Test 127.
 - **(UX) Manager card.** The `hand_over_unpaid` card shows who asked (the "from {name}" line from `display.requester_name`) and the customer ("Hand over unpaid #14 · Ali"), from 02b v1.0.28 §6.12a; no 01d change beyond this note.
 
@@ -1904,7 +1904,7 @@ Device → server:
 
 ### 8.1 All clients (tablet app, kiosk, KDS, phone browser)
 
-⚠️ Changed by 01d v1.3.9 (owner 2026-11-28 QA-R2): (BUG-13) the PIN pad ignores pointer taps for 400 ms after it opens (keys from a keyboard always count); (UX) the signed-out sign-in screen shows no alerts (the F01 lock panel is gone).
+⚠️ Changed by 01d v1.3.9 (owner 2026-11-28 QA-R2): (BUG-13) the answer sheet's PIN pad ignores pointer taps for 400 ms after it opens (keys from a keyboard always count); (UX) the signed-out sign-in screen shows no alerts (the F01 lock panel is gone).
 
 - ⚠️ Changed by run 3 (R3-m-5): Browser kiosk `4413 DISPLAY_DEVICE` is terminal for the alert socket. The `/staff/` page keeps its device keys and follows to `/board/`. The native service change is deferred with tablet boards (C-05b-37, 05a T-1).
 - ⚠️ Changed by v1.3.7 (03b v1.0.16 row D-7; 02b-tk R8; DRAFT) (⚠️ Changed by v1.3.7 hostile run 1, m-5): counter rows cannot be marked seen (no inbox row), so after a reconnect the catch-up lists them again; the page re-lists a counter row it already showed in this page's life **without sound** and rings only for a new step. ⚠️ Changed by run 3 (R3-M-2): The same shown-step rule applies to the live profile alert refresh.
@@ -2182,7 +2182,7 @@ Test files under `apps/hub/test/alerts/`; a **test kind** `t_approval` (approval
 
 124. `excludesStaff`: a fake kind excluding staff `S_COOK` → its raise resolves no row for `S_COOK` through `managers`, `point` or `person`; others keep theirs.
 125. `excludesStaff` delivery: `S_COOK` signed in on a device with a device row of the alert gets no frame; the `alerts` catch-up and `alerts-inbox` of `S_COOK` list nothing; a signed-out socket of that device still gets the lock.
-126. PIN pad: a pointer tap on "9" within 400 ms of the pad opening adds no digit; after 400 ms it does; a keyboard "9" at once does.
+126. Answer-sheet PIN pad: a pointer tap on "9" within 400 ms of the pad opening adds no digit; after 400 ms it does; a keyboard "9" at once does.
 127. Sign-in screen: an open alert on a signed-out kiosk / phone → no lock panel on the sign-in screen.
 
 ### 10.10 Acceptance table
