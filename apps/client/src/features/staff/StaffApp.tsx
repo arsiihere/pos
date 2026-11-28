@@ -980,6 +980,9 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
     '/devices': showDevices,
     '/test-alert': showTest,
     '/pass': has('pass'),
+    // ⚠️ 02b v1.0.26 §8 (owner 2026-11-28 Q11): taking orders needs take-order
+    '/takeaway': allowed.has('take-order'),
+    '/orders': allowed.has('take-order'),
   };
   // 03b W0.6: Pass first in the nav on a device whose catch-up has a point_view
   // AD-K12 / W-3: leaving the landing route ends the landing too (a late catch-up never moves a person mid-task)

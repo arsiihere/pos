@@ -74,7 +74,7 @@ function hub(o: { profile?: () => Profile; permissions?: () => Record<string, un
         const p = o.profile?.();
         return reply(200, {
           data: {
-            permissions: o.permissions?.() ?? {},
+            permissions: { 'take-order': { grant: 'allowed', scope: 'branch' }, ...(o.permissions?.() ?? {}) }, // 02b v1.0.26 Q11: the order screens need take-order
             ...(p === undefined ? {} : { device: { device_id: 'D', screens: p.screens, access: p.access ?? 'listed', point_id: p.point_id ?? null } }),
           },
         });
