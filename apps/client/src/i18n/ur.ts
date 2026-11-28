@@ -1777,6 +1777,9 @@ export const ur: Partial<Record<MessageKey, string>> = {
   'owner.points.receives_help': 'ہر آئٹم اس پاس پر جاتا ہے جو اس کے آرڈر کی قسم لیتا ہے؛ کوئی نہ ہو تو اسٹیشن کے پاس پر۔', // not in strings-table.md; Urdu to confirm
   'owner.points.receives_n': 'لیتا ہے: {types}', // not in strings-table.md; Urdu to confirm
   'owner.points.type.dine_in': 'میز پر', // not in strings-table.md; Urdu to confirm
+  'owner.points.warn.same_position': 'پوائنٹس {names} کی جگہ ایک ہی ہے ({n}) — ہر ایک کو اپنی جگہ دیں', // QA-R2 BUG-8; Urdu to confirm
+  'owner.points.warn.tie': '{type} آرڈر {count} پاس سے ملتے ہیں: {names} — یہ اسٹیشن کے ڈیفالٹ پاس پر جاتے ہیں', // QA-R2 BUG-8; Urdu to confirm
+  'owner.points.warn.gap': '{type} آرڈرز کا کوئی پاس نہیں — یہ اسٹیشن کے ڈیفالٹ پاس پر جاتے ہیں', // QA-R2 BUG-8; Urdu to confirm
   'owner.points.type.takeaway': 'ٹیک اوے', // not in strings-table.md; Urdu to confirm
   'owner.points.type.parking': 'پارکنگ', // not in strings-table.md; Urdu to confirm
   'owner.points.type.delivery': 'ڈیلیوری', // not in strings-table.md; Urdu to confirm
