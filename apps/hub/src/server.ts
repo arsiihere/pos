@@ -255,12 +255,13 @@ export function buildHubServer(deps: HubDeps, options: BuildHubOptions = {}): Fa
     };
   };
   // 05b H-1 (M-13, O-17): /staff/ alone adds the build it loaded at start, so a tablet sees a new release.
+  // ⚠️ 00 HPA v1.15 §8.2 (SW-1): and its kiosk service worker, filled with that build's files.
   let staffBuild: string | null = null;
   const staffMeta = (): Record<string, string> | null => {
     const meta = pageMeta();
     return meta === null || staffBuild === null ? meta : { ...meta, 'pos-staff-build': staffBuild };
   };
-  staffBuild = registerClientDist(app, { prefix: '/staff/', dir: STAFF_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: staffMeta }).indexSha256;
+  staffBuild = registerClientDist(app, { prefix: '/staff/', dir: STAFF_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: staffMeta, serviceWorker: 'sw.js' }).indexSha256;
   staffBuilds.set(app, staffBuild);
   // 00 v1.9.2 §8.2 (Q-42): the 03b KDS entry, with the same page meta; it signs in as its station itself (M53).
   registerClientDist(app, { prefix: '/kds/', dir: KDS_DIST_DIR, routeConfig: { group: 'admin-page' }, indexMeta: pageMeta });

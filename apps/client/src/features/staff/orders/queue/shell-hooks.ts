@@ -17,7 +17,8 @@ export const createShellHooks: (enqueue: Enqueue) => ShellHooks = (enqueue) => {
   let lastLine: string | null = null;
   return {
     async beforeSignIn() {
-      // nothing queued in this page's life (after a reload everything is in the log): no wait at all
+      // nothing queued: no wait at all. ⚠️ 02b v1.0.32 QO-1: an order kept from a reload has no person yet and is
+      // passed here; the signed-in socket's catch-up drain sends it as the person who signs in
       if (queue !== null && enqueue.pendingCount() > 0) await queue.drain().catch(() => {});
       // 25d, #35 S-4: a logout the idle lock owes is sent before the next login (after the drain)
       await peekPendingLogout(enqueue)?.flush().catch(() => false);
