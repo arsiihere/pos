@@ -687,3 +687,5 @@ button.tk-rt__act { min-height: 44px; padding: 0; border: 0; background: transpa
 @media (max-width: 1700px) { .pu.staff:has(.osc--tk) .abns { inset-inline-start: 396px; width: min(470px, calc(100vw - 396px - 480px - 16px)); } }
 @media (max-width: 1440px) { .pu.staff:has(.osc--tk) .abns { inset-inline-start: 346px; width: min(470px, calc(100vw - 346px - 420px - 16px)); } }
 .pu.staff:has(.osc--tk-tablet) .abns { inset-inline-start: 16px; width: min(470px, calc(100vw - 440px - 32px)); }
+/* ⚠️ 02b v1.0.28 QK-7 (BUG-24): the name field's n/40 counter at the end of its label */
+.cust .fld__l .fld__count { float: inline-end; font-weight: 400; color: var(--ink-muted); }
