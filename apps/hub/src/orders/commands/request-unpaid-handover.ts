@@ -19,6 +19,8 @@ import { checkOrderScope } from './mark-served.js';
 
 export const HAND_OVER_UNPAID_KIND = 'hand_over_unpaid';
 export const HAND_OVER_UNPAID_LABELS = { card: 'alert.hand_over_unpaid.card', lock: 'alert.hand_over_unpaid.lock' } as const;
+/** ⚠️ 02b v1.0.26 §6.12a (owner 2026-11-28 Q10): details.disposition of a request for an addition-only bill */
+export const HAND_OVER_UNPAID_ADDITION = 'alert.hand_over_unpaid.addition';
 export const dedupeKeyOf = (order_id: string): string => `${HAND_OVER_UNPAID_KIND}:${order_id}`;
 /** ⚠️ 02b v1.0.26 (owner 2026-11-28 Q9): one request per bill */
 export const billDedupeKeyOf = (bill_key: string): string => `${HAND_OVER_UNPAID_KIND}:bill:${bill_key}`;
@@ -118,7 +120,10 @@ function requestUnpaidHandover(ctx: CommandCtx, p: z.infer<typeof Payload>): { e
   // A stale amount (or another set of orders): its obsolete close goes in first, so the same key raises the replacement.
   if (pending !== undefined) ctx.tx.append(alerts.closeMany(ctx, [{ alert_id: pending.alert_id, reason: 'obsolete', note: 'due_changed' }]));
   const values: HandOverUnpaidValues = { order_id: subject.order_id, token: subject.order_type === 'parking' ? null : subject.token, due_minor: due, order_ids };
-  const details: AlertDetails = { identifier: identifierOf(subject), amount: due };
+  // ⚠️ 02b v1.0.26 §6.12a (owner 2026-11-28 Q10): a takeaway bill whose live orders are additions only (its key names the
+  // root, `takeaway:<root>`, and the root is no longer on it) → the manager's card says "(addition)"
+  const additionOnly = subject.order_type === 'takeaway' && o.bill_key.startsWith('takeaway:') && o.bill_key !== `takeaway:${subject.order_id}`;
+  const details: AlertDetails = { identifier: identifierOf(subject), amount: due, ...(additionOnly ? { disposition: HAND_OVER_UNPAID_ADDITION } : {}) };
   const raised = alerts.raise(ctx, {
     kind: HAND_OVER_UNPAID_KIND,
     subject: { stream_type: 'order', stream_id: subject.order_id },

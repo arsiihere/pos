@@ -18,7 +18,7 @@ import {
 // is persisted as AlertRaised v6 (01d v1.3.7 §5.4).
 
 /** §6.12a details: the identifier ('#<token>' or 'PARKING') and the amount (signed-in card only). */
-export const HandOverUnpaidDetails = AlertDetailsBase.pick({ identifier: true, amount: true });
+export const HandOverUnpaidDetails = AlertDetailsBase.pick({ identifier: true, amount: true, disposition: true }); // ⚠️ 02b v1.0.26 Q10: + disposition (addition mark)
 
 /**
  * §6.12a apply (approve), read-only, in 01d's pre-read and again in the answer transaction: the named order (1) and,

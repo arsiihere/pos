@@ -325,7 +325,7 @@ export function AnswerSheet({
           {closed && (
             <div className="ro ro--result" role="status">
               <Ico name={row.close_reason === 'withdrawn' ? 'undo' : row.decision === 'reject' || row.decision === 'decline' ? 'x' : 'check'} />
-              <span>{closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem }, utcOffsetMs)}</span>
+              <span>{closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem, note: row.close_note }, utcOffsetMs)}</span>
             </div>
           )}
           {sharedMoney && open && (

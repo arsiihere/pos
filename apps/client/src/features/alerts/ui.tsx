@@ -245,6 +245,8 @@ export interface RowLike extends Tagged {
   close_reason?: AlertRow['close_reason'] | undefined;
   decision?: AlertRow['decision'] | undefined;
   by_name?: string | null | undefined;
+  /** ⚠️ 01d v1.3.8 (Q10): why it closed (the frame's note) */
+  close_note?: string | null | undefined;
   seen_by_me?: boolean | undefined;
 }
 
@@ -475,7 +477,7 @@ export function RowCard({ row, utcOffsetMs, onOpen, className }: { row: RowLike;
           {closed && (isRequest(row) || is03bKind(row.kind)) ? (
             <span className="ar__res">
               <Ico name={resultIcon(row)} />
-              {closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem }, utcOffsetMs)}
+              {closedText({ close_reason: row.close_reason ?? null, decision: row.decision ?? undefined, by_name: row.by_name, kind: row.kind, problem: row.card?.details?.problem, note: row.close_note }, utcOffsetMs)}
             </span>
           ) : det !== null ? (
             <>

@@ -66,6 +66,8 @@ export interface AlertRow extends AlertView {
   /** from the `alert_closed` frame */
   decision: RequestDecision | null;
   by_name: string | null;
+  /** ⚠️ 01d v1.3.8 (owner 2026-11-28 Q10): the close's note from the `alert_closed` frame (why it closed), else absent */
+  close_note?: string | null;
 }
 
 export interface AlertSnapshot {
@@ -274,7 +276,7 @@ export function createAlertStore(deps: AlertStoreDeps): AlertStore {
     },
 
     onClosed(frame) {
-      close(frame.alert_id, { close_reason: frame.reason, decision: frame.decision, by_name: frame.by_name });
+      close(frame.alert_id, { close_reason: frame.reason, decision: frame.decision, by_name: frame.by_name, close_note: frame.note ?? null });
       changed();
     },
 

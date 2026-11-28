@@ -1156,7 +1156,7 @@ function StaffSession({ device, meta, fetch, createSocket, sink, timers, wipeKey
       live ??
       (last === null
         ? null
-        : { ...last, state: 'closed' as const, close_reason: c?.reason ?? last.close_reason, decision: c?.decision ?? last.decision, by_name: c?.by_name ?? last.by_name });
+        : { ...last, state: 'closed' as const, close_reason: c?.reason ?? last.close_reason, decision: c?.decision ?? last.decision, by_name: c?.by_name ?? last.by_name, close_note: c?.note ?? null });
     if (live !== undefined) lastOpened.current = live;
   }
 

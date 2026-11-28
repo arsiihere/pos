@@ -39,6 +39,10 @@ export function tableLabel(code: string | null | undefined): string | null {
   return /^[0-9]+$/.test(code) ? fill(t('alerts.table'), { code }) : code;
 }
 
+function withAddition(identifier: string | null, disposition: string | null | undefined): string | null {
+  return identifier !== null && disposition === 'alert.hand_over_unpaid.addition' ? `${identifier} ${t('pass.addition_tag')}` : identifier;
+}
+
 function params(d: AlertLock | AlertCard): Record<string, string | null> {
   return {
     table: tableLabel(d.table_code),
@@ -46,7 +50,8 @@ function params(d: AlertLock | AlertCard): Record<string, string | null> {
     requester: d.requester_name ?? null,
     device: d.device_name ?? null,
     // 02b-TK L-CLIENT-2 item 4 (02b v1.0.25 §6.12a, R3-m-4): "Hand over unpaid {identifier}" — card details only
-    identifier: 'details' in d ? (d.details?.identifier ?? null) : null,
+    // ⚠️ 02b v1.0.26 §6.12a (owner 2026-11-28 Q10): a request for an addition-only bill reads "#14 (addition)"
+    identifier: 'details' in d ? withAddition(d.details?.identifier ?? null, d.details?.disposition) : null,
   };
 }
 
@@ -251,7 +256,7 @@ export function closedText(
     kind?: string | undefined;
     problem?: string | null | undefined;
     moved_to?: string | null | undefined;
-    /** the closer's note when the place knows it (a request_result); the `alert_closed` frame carries none */
+    /** the closer's note when the place knows it (a request_result, or ⚠️ 01d v1.3.8 Q10 the `alert_closed` frame's note) */
     note?: string | null | undefined;
   },
   utcOffsetMs: number,

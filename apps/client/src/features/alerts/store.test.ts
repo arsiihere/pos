@@ -408,3 +408,16 @@ describe('[01d v1.3 §3.13.1] the row keeps `target` (M2)', () => {
     expect(again.store.snapshot().rows[0]?.seen_by_me).toBe(true);
   });
 });
+
+describe('[01d v1.3.8 owner 2026-11-28 Q10] alert_closed note', () => {
+  it('the frame\'s note stays on the closed row (the card says why); no note → null', () => {
+    const { store } = setup();
+    store.onAlert(view({ alert_id: 'A1' }));
+    store.onAlert(view({ alert_id: 'A2' }));
+    store.onClosed({ type: 'alert_closed', alert_id: 'A1', reason: 'obsolete', decision: null, by_name: null, note: 'due_changed' });
+    store.onClosed({ type: 'alert_closed', alert_id: 'A2', reason: 'withdrawn', decision: null, by_name: null });
+    const rows = new Map(store.snapshot().rows.map((r) => [r.alert_id, r]));
+    expect(rows.get('A1')).toMatchObject({ state: 'closed', close_reason: 'obsolete', close_note: 'due_changed' });
+    expect(rows.get('A2')).toMatchObject({ state: 'closed', close_note: null });
+  });
+});

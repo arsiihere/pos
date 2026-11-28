@@ -364,3 +364,37 @@ describe('[01d §6.8, To 02b R3-M-3; 01d #122] my-requests ask_in_person for han
     expect((await mine(ali)).find((r) => r.alert_id === alert_id)!.ask_in_person).toBe(true);
   });
 });
+
+// ⚠️ 02b v1.0.26 §6.12a, 01d v1.3.8 (owner 2026-11-28 Q10): the manager's card says "(addition)" for a request whose bill
+// holds additions only (the root's bill already closed): details.disposition 'alert.hand_over_unpaid.addition'; and a
+// closed request's frame carries its close note, so the manager's card can say why ("Bill went up — ask again").
+describe('[02b v1.0.26, 01d v1.3.8 owner 2026-11-28 Q10] manager card: addition mark and close reason', () => {
+  const detailsOf = (alert_id: string) => JSON.parse(hub.deps.db.prepare('SELECT details_json FROM alerts WHERE alert_id = ?').pluck().get(alert_id) as string) as Record<string, unknown>;
+
+  it('an addition-only bill (root paid) → disposition addition; root + addition on one bill → none', async () => {
+    const { ali } = await start();
+    const root = takeaway();
+    append(hub, [{ stream_type: 'order', stream_id: root, event_type: 'OrdersBilled', payload: { order_ids: [root], bill_id: 'BL-R' } }]);
+    const add = takeaway(undefined, { adds_to_order_id: root });
+    const onlyAdd = (await ask(ali, add)).result!.alert_id as string;
+    expect(detailsOf(onlyAdd)).toMatchObject({ disposition: 'alert.hand_over_unpaid.addition' });
+    const other = takeaway();
+    takeaway(undefined, { adds_to_order_id: other });
+    const shared = (await ask(ali, other)).result!.alert_id as string;
+    expect(detailsOf(shared).disposition).toBeUndefined();
+  });
+
+  it('a stale request closed due_changed → the answerers\' alert_closed frame carries note due_changed', async () => {
+    const { ali, managerPhone } = await start();
+    const ws = await connectWs(hub.app);
+    ws.send({ type: 'auth', device_token: managerPhone.token, session_token: managerPhone.sessionToken });
+    await ws.untilCount(1);
+    const a = takeaway();
+    const alert_id = (await ask(ali, a)).result!.alert_id as string;
+    takeaway(undefined, { adds_to_order_id: a }); // the bill's due rises: the request closes obsolete, note due_changed
+    await new Promise((r) => setTimeout(r, 50));
+    const closed = (ws.messages as Array<{ type: string; alert_id?: string }>).filter((m) => m.type === 'alert_closed' && m.alert_id === alert_id);
+    expect(closed).toEqual([{ type: 'alert_closed', alert_id, reason: 'obsolete', decision: null, by_name: null, note: 'due_changed' }]);
+    ws.close();
+  });
+});

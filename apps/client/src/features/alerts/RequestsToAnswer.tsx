@@ -17,6 +17,8 @@ export interface RequestView extends RequestRow {
   close_reason: AlertRow['close_reason'];
   decision: AlertRow['decision'];
   by_name: string | null;
+  /** ⚠️ 01d v1.3.8 (owner 2026-11-28 Q10): why it closed (the `alert_closed` frame's note) */
+  close_note?: string | null;
 }
 
 /** How long a request answered elsewhere stays as a closed row before it leaves the list. */
@@ -49,11 +51,13 @@ export function requestViews(
       view.close_reason = h.close_reason ?? c?.reason ?? null;
       view.decision = h.decision ?? c?.decision ?? null;
       view.by_name = h.by_name ?? c?.by_name ?? null;
+      view.close_note = h.close_note ?? c?.note ?? null;
     } else if (c !== undefined) {
       view.state = 'closed';
       view.close_reason = c.reason;
       view.decision = c.decision;
       view.by_name = c.by_name;
+      view.close_note = c.note ?? null;
     }
     return view;
   });
